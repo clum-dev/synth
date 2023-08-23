@@ -11,17 +11,21 @@ from scipy.signal import sawtooth, square
 from sys import maxsize as INTEGER_MAX
 
 
-SAMPLE_RATE = 44100
-DIVS = 16
-MASTER_VOL = 4.0
+SAMPLE_RATE = 44100     # Nyquist frequency
+DIVS = 16               # Divisions per bar
+MASTER_VOL = 4.0        # Master volume
 
 
+'''
+Musical note information
+'''
 class Note:
 
     NOTES = ['c','c#','d','d#','e','f','f#','g','g#','a','a#','b']
 
     def __init__(self, note, octave=4):
         self.octave = octave
+
         if isinstance(note, int):
             self.index = note
             self.note = Note.NOTES[note]
@@ -34,15 +38,15 @@ class Note:
         octave_delta, note = divmod(self.index + halfsteps, 12)
         return Note(note, self.octave + octave_delta)
 
-    def frequency(self):
+    def freq(self):
         base_frequency = 16.35159783128741 * 2.0 ** (float(self.index) / 12.0)
         return base_frequency * (2.0 ** self.octave)
 
-    def __float__(self):
-        return self.frequency()
 
-
-# TODO: chord player based on a chord???
+'''
+Scale of musical notes
+TODO: chord player based on a chord???
+'''
 class Scale:
 
     intervals = {'major': [2, 2, 1, 2, 2, 2, 1], 
@@ -76,8 +80,11 @@ class Scale:
 
     def transpose(self, note, interval):
         return self.get(self.index(note) + interval)
-    
 
+
+'''
+Waveform oscillator
+'''
 class Osc:
     def silence(freq, samples:int):
         return np.zeros(int(samples))
@@ -99,7 +106,10 @@ class Osc:
         return sawtooth(np.arange(samples) * factor, width=0.5)
 
 
-# TODO: fix tempo to actually give correct time divisions
+'''
+Tempo tracker (for consistent note lengths)
+TODO: fix tempo to actually give correct time divisions
+'''
 class Tempo:
     def __init__(self, bpm:int) -> None:
         self.bpm = bpm
@@ -115,8 +125,13 @@ class Tempo:
     # Return the time elapsed for the given divcount
     def get_time(self, samples:int) -> float:
         return samples / SAMPLE_RATE
-        
 
+     
+'''
+ADSR envelope generator
+(only modulates amplitude right now)
+TODO: modulate filter, etc.
+'''
 class ADSR:
 
     def __init__(self, adsr:list) -> None:
@@ -165,6 +180,9 @@ class ADSR:
         return data * shape
 
 
+'''
+Low pass filter
+'''
 class Filter:
     def __init__(self, cutoff:float, bType:str='low') -> None:
         assert 0 < cutoff < 1
@@ -174,6 +192,10 @@ class Filter:
         return lfilter(self.b, self.a, data)
 
 
+'''
+Consolidated synthesizer class
+Implements all features above to generate sound
+'''
 class Synth:
 
     # vtype = harmonic | unison
@@ -230,6 +252,10 @@ class Synth:
         return self.adsr.gen_envelope(chunk, self.tempo.get_time(samp))
 
 
+'''
+Produce notes from excel spreadsheet of notes
+(see notes.xlsx for example)
+'''
 class NoteGenerator:
     def __init__(self, filepath:str, sheetname:str, t:Tempo) -> None:
         self.data = pd.read_excel(filepath, sheet_name=sheetname)
@@ -254,7 +280,6 @@ class NoteGenerator:
         else:
             return None, None
     
-
     def gen_notes(self, col:pd.DataFrame, synth:Synth) -> list:
         
         # col = self.data.loc[:,colName]        # OLD
@@ -283,7 +308,7 @@ class NoteGenerator:
                 divcount += 1
                 i += 1
                 
-            out.append(synth.gen_signal(current.frequency(), self.t.get_samples(divcount)))
+            out.append(synth.gen_signal(current.freq(), self.t.get_samples(divcount)))
 
             # Reset divcount
             divcount = 1
@@ -295,7 +320,6 @@ class NoteGenerator:
 
         return out, sampLen
     
-
     def get(self, synths:list) -> list:
         chunks = []
         shortest = INTEGER_MAX
@@ -330,7 +354,7 @@ def main():
                             sheetname='Demo', 
                             t=tempo)
 
-    # Lead synth
+    # Pad synth
     pad = Synth(name='pad',
                 wave=Osc.saw,
                 voices=3,
@@ -373,8 +397,20 @@ def main():
                 cutoff=0.6,
                 volume=0.12
                 )
+    
+    # Another lead synth
+    lead2 = Synth(name='lead2',
+                  wave=Osc.saw,
+                  voices=2,
+                  vtype='unison',
+                  adsr=[0.0, 0.0, 1.0, 0.1],
+                  tempo=tempo,
+                  cutoff=0.9,
+                  volume=0.5
+                  )
 
-    chunks = notegen.get([pad, bass, lead, arp])
+    # Generate the audio stream from the notes3
+    chunks = notegen.get([pad, bass, lead, arp, lead2])
 
     # Play stuff
     chunk = np.concatenate(chunks) * 0.25
